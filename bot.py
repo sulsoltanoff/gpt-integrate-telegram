@@ -20,6 +20,7 @@ logging.basicConfig(filename='bot.log', level=logging.INFO)
 
 # List of user IDs that are allowed access
 ALLOWED_USERS = os.getenv("ALLOWED_USERS").split(",")
+ALLOWED_USERS = list(map(int, ALLOWED_USERS))
 
 
 # Decorator function to check access
@@ -65,7 +66,7 @@ def start(message):
 
 
 # User message handler
-@bot.message_handler(func=lambda message: True)
+@bot.message_handler(func=lambda message: message.text is not None and '/' not in message.text)
 @restricted_access
 def echo_message(message):
     try:
@@ -123,7 +124,8 @@ def response_to_gpt(message):
 @restricted_access
 def help_message(message):
     bot.reply_to(message,
-                 "I know how to answer questions using the OpenAI API. Just write me a message and I'll try to it.")
+                 "I know how to answer questions using the OpenAI API. Just write me a message and I'll try to it. "
+                 "Source code this bot https://github.com/sulsoltanoff/gpt-integrate-telegram")
 
 
 # Refresh the hot cache when the bot starts
