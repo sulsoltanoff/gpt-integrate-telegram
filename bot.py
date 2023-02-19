@@ -143,7 +143,6 @@ def response_to_gpt(message):
 
 # Add a /help command handler
 @bot.message_handler(commands=['help'])
-@restricted_access
 def help_message(message):
     bot.reply_to(message,
                  "I know how to answer questions using the OpenAI API. Just write me a message and I will try to do it."
