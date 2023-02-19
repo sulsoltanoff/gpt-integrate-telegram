@@ -22,6 +22,15 @@ logging.basicConfig(filename='bot.log', level=logging.INFO)
 ALLOWED_USERS = os.getenv("ALLOWED_USERS").split(",")
 ALLOWED_USERS = list(map(int, ALLOWED_USERS))
 
+# Mutex
+lock = threading.Lock()
+
+# Time interval for rate limiting
+RATE_LIMIT_INTERVAL = 30 * 60  # 30 min
+
+# Last request time
+last_request_time = time.time()
+
 
 # Decorator function to check access
 def restricted_access(func):
@@ -58,11 +67,18 @@ HOT_CACHE_DURATION = 5 * 60  # 5 min
 hot_cache = {}
 
 
-# The /start command handler
+# The /start command handler and refresh the hot cache when the bot starts
 @bot.message_handler(commands=['start'])
 @restricted_access
 def start(message):
     bot.reply_to(message, "Hi, I'm your helper, ready to work with the OpenAI API!")
+    user_id = message.from_user.id
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute("SELECT text FROM context WHERE user_id=? ORDER BY id DESC LIMIT 1", (user_id,))
+        row = c.fetchone()
+        if row is not None:
+            hot_cache[user_id] = (row[0], time.time())
 
 
 # User message handler
@@ -73,23 +89,29 @@ def echo_message(message):
         text = message.text
         user_id = message.from_user.id
 
-        # Retrieve the last saved request context for a given user from the hot cache
-        prev_text, prev_time = hot_cache.get(user_id, (None, 0))
+        # Check if the user has sent too many messages in a short period of time
+        global last_request_time
 
-        # If the entry is in the cache and the time to send the request does not exceed 5 minutes, use it as
-        # previous context
-        if prev_text and time.time() - prev_time < HOT_CACHE_DURATION:
-            prompt = prev_text + '\n' + text
-        else:
-            # Otherwise query the database to get the last query context for this user
-            with get_conn() as conn:
-                c = conn.cursor()
-                c.execute("SELECT text FROM context WHERE user_id=? ORDER BY id DESC LIMIT 1", (user_id,))
-                row = c.fetchone()
-                prompt = row[0] + '\n' + text if row is not None else text
+        if time.time() - last_request_time < RATE_LIMIT_INTERVAL:
+            # Retrieve the last saved request context for a given user from the hot cache
+            prev_text, prev_time = hot_cache.get(user_id, (None, 0))
 
-                # Refreshing the hot cache
-                hot_cache[user_id] = (prompt, time.time())
+            # If the entry is in the cache and the time to send the request does not exceed 5 minutes, use it as
+            # previous context
+            if prev_text and time.time() - prev_time < HOT_CACHE_DURATION:
+                prompt = prev_text + '\n' + text
+            else:
+                # Otherwise query the database to get the last query context for this user
+                with get_conn() as conn:
+                    c = conn.cursor()
+                    c.execute("SELECT text FROM context WHERE user_id=? ORDER BY id DESC LIMIT 1", (user_id,))
+                    row = c.fetchone()
+                    prompt = row[0] + '\n' + text if row is not None else text
+
+                    # Refreshing the hot cache
+                    hot_cache[user_id] = (prompt, time.time())
+
+        bot.reply_to(message, "Request accepted for processing, please wait.")
 
         # Generating a response using the OpenAI API
         response = response_to_gpt(prompt)
@@ -112,7 +134,7 @@ def response_to_gpt(message):
     response = openai.Completion.create(
         model="text-davinci-003",
         prompt=message,
-        max_tokens=3500,
+        max_tokens=4000,
         temperature=0.7,
 
     )
@@ -124,21 +146,8 @@ def response_to_gpt(message):
 @restricted_access
 def help_message(message):
     bot.reply_to(message,
-                 "I know how to answer questions using the OpenAI API. Just write me a message and I'll try to it. "
-                 "Source code this bot https://github.com/sulsoltanoff/gpt-integrate-telegram")
-
-
-# Refresh the hot cache when the bot starts
-@bot.message_handler(commands=['start'])
-@restricted_access
-def update_hot_cache(message):
-    user_id = message.from_user.id
-    with get_conn() as conn:
-        c = conn.cursor()
-        c.execute("SELECT text FROM context WHERE user_id=? ORDER BY id DESC LIMIT 1", (user_id,))
-        row = c.fetchone()
-        if row is not None:
-            hot_cache[user_id] = (row[0], time.time())
+                 "I know how to answer questions using the OpenAI API. Just write me a message and I will try to do it."
+                 "Source code for this bot https://github.com/sulsoltanoff/gpt-integrate-telegram")
 
 
 # Add a function to be called on exit to close the database connection
