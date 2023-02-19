@@ -22,6 +22,8 @@ logging.basicConfig(filename='bot.log', level=logging.INFO)
 ALLOWED_USERS = os.getenv("ALLOWED_USERS").split(",")
 ALLOWED_USERS = list(map(int, ALLOWED_USERS))
 
+MODELS_GPT = "text-davinci-003"
+
 # Mutex
 lock = threading.Lock()
 
@@ -30,6 +32,8 @@ RATE_LIMIT_INTERVAL = 30 * 60  # 30 min
 
 # Last request time
 last_request_time = time.time()
+
+MAX_MESSAGE_LENGTH = 4096
 
 
 # Decorator function to check access
@@ -100,6 +104,7 @@ def echo_message(message):
             # previous context
             if prev_text and time.time() - prev_time < HOT_CACHE_DURATION:
                 prompt = prev_text + '\n' + text
+
             else:
                 # Otherwise query the database to get the last query context for this user
                 with get_conn() as conn:
@@ -113,11 +118,17 @@ def echo_message(message):
 
         bot.reply_to(message, "Request accepted for processing, please wait.")
 
-        # Generating a response using the OpenAI API
+        # Generating a response using the OpenAI AP
         response = response_to_gpt(prompt)
 
-        # Replying to the user
-        bot.reply_to(message, response.choices[0].text)
+        # Splitting response into multiple messages if it exceeds the maximum length allowed by Telegram API
+        response_text = response.choices[0].text
+        while len(response_text) > 0:
+            response_chunk = response_text[:MAX_MESSAGE_LENGTH]
+            response_text = response_text[MAX_MESSAGE_LENGTH:]
+
+            # Replying to the user with the current chunk of the response
+            bot.reply_to(message, response_chunk)
 
         # Save the query context to the database
         with get_conn() as conn:
@@ -127,15 +138,16 @@ def echo_message(message):
 
     except Exception as e:
         logging.error(str(e))
-        bot.reply_to(message, f"An error occurred while processing the request. Please try again later. \n {e}")
+        bot.reply_to(message, f"An error occurred while processing the request. Please try again later. \n {e} \n\n "
+                              f"use /drop_cache command")
 
 
 def response_to_gpt(message):
     response = openai.Completion.create(
-        model="text-davinci-003",
+        model=MODELS_GPT,
         prompt=message,
         max_tokens=4000,
-        temperature=0.7,
+        temperature=0.2,
 
     )
     return response
@@ -147,6 +159,24 @@ def help_message(message):
     bot.reply_to(message,
                  "I know how to answer questions using the OpenAI API. Just write me a message and I will try to do it."
                  "Source code for this bot https://github.com/sulsoltanoff/gpt-integrate-telegram")
+
+    drop_cache(message)
+
+
+@bot.message_handler(commands=['drop_cache'])
+@restricted_access
+def drop_cache(message):
+    user_id = message.from_user.id
+
+    conn = get_conn()
+    cursor = conn.cursor()
+
+    cursor.execute('DELETE FROM context WHERE user_id=?', (user_id,))
+
+    hot_cache.clear()
+
+    conn.commit()
+    bot.send_message(user_id, "Cache dropped.")
 
 
 # Add a function to be called on exit to close the database connection
