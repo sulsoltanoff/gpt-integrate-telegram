@@ -77,6 +77,7 @@ hot_cache = {}
 def start(message):
     bot.reply_to(message, "Hi, I'm your helper, ready to work with the OpenAI API!")
     user_id = message.from_user.id
+    # When the bot starts, look for the context in the database to recover the conversation.
     with get_conn() as conn:
         c = conn.cursor()
         c.execute("SELECT text FROM context WHERE user_id=? ORDER BY id DESC LIMIT 1", (user_id,))
@@ -92,6 +93,7 @@ def echo_message(message):
     try:
         text = message.text
         user_id = message.from_user.id
+        prompt = ""
 
         # Check if the user has sent too many messages in a short period of time
         global last_request_time
@@ -123,6 +125,7 @@ def echo_message(message):
 
         # Splitting response into multiple messages if it exceeds the maximum length allowed by Telegram API
         response_text = response.choices[0].text
+
         while len(response_text) > 0:
             response_chunk = response_text[:MAX_MESSAGE_LENGTH]
             response_text = response_text[MAX_MESSAGE_LENGTH:]
@@ -138,8 +141,8 @@ def echo_message(message):
 
     except Exception as e:
         logging.error(str(e))
-        bot.reply_to(message, f"An error occurred while processing the request. Please try again later. \n {e} \n\n "
-                              f"use /drop_cache command")
+        bot.reply_to(message, f"An error occurred while processing the request. Please try again later. \n {e} ")
+        drop_cache(message)
 
 
 def response_to_gpt(message):
@@ -157,10 +160,8 @@ def response_to_gpt(message):
 @bot.message_handler(commands=['help'])
 def help_message(message):
     bot.reply_to(message,
-                 "I know how to answer questions using the OpenAI API. Just write me a message and I will try to do it."
-                 "Source code for this bot https://github.com/sulsoltanoff/gpt-integrate-telegram")
-
-    drop_cache(message)
+                 "You can send requests to the OpenAI API through me. Just email me your request and I will send it "
+                 "for processing.")
 
 
 @bot.message_handler(commands=['drop_cache'])
