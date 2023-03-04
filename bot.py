@@ -19,8 +19,14 @@ bot = telebot.TeleBot(os.getenv("TG_API_KEY"))
 logging.basicConfig(filename='bot.log', level=logging.INFO)
 
 # List of user IDs that are allowed access
-ALLOWED_USERS = os.getenv("ALLOWED_USERS").split(",")
-ALLOWED_USERS = list(map(int, ALLOWED_USERS))
+# Get the value of the ALLOWED_USERS environment variable
+allowed_users = os.getenv("ALLOWED_USERS")
+
+# Check if an environment variable exists and contains a valid string
+if allowed_users and allowed_users.strip():
+    allowed_users_list = [int(user_id.strip()) for user_id in allowed_users.split(",")]
+else:
+    allowed_users_list = []
 
 MODELS_GPT = "text-davinci-003"
 
